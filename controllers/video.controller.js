@@ -1,95 +1,105 @@
-// require("dotenv").config;
-// const ffmpeg = require("fluent-ffmpeg");
-// const express = require("express");
-// const spawn = require("child_process").spawn;
+require("dotenv").config;
+const ffmpeg = require("fluent-ffmpeg");
+const createError = require("http-errors");
+const { join, extname } = require("path");
+const fs = require("fs-extra");
+const { EXTENSIONS } = require("../constants/video.constant");
 
-// const router = express.Router();
-
-// const path = require("path");
-// const { v4: uuidv4 } = require("uuid");
-// const fs = require("fs");
-// const fsp = fs.promises;
-// const logger = require("../httpLogger");
-// const jwt = require("jsonwebtoken");
-
+function isVideoFile(fileName) {
+  for (let i = 0; i < EXTENSIONS.length; i++)
+    if (fileName.includes(EXTENSIONS[i])) return true;
+  return false;
+}
 const transcodeVideo = async (req, res, next) => {
-  //   try {
-  //     const appName = "TESTY";
-  //     const videosOutputPath = VIDEOS_OUTPUT_MAIN_DIR + appName + "//";
-  //     if (!fs.existsSync(videosOutputPath)) {
-  //       fs.mkdirSync(videosOutputPath);
-  //     }
-  //     if (!req.files || !req.files.file) {
-  //       res.status(400).json({
-  //         message:
-  //           'No Video Selected! Make sure you added the value "file" to the input attr "name"',
-  //       });
-  //       return;
-  //     }
-  //     const file = req.files.file;
-  //     if (!isVideoFile(file.name)) {
-  //       res.status(400).json({ message: "Invalid Video Format!" });
-  //       return;
-  //     }
-  //     if (file.size > 131072000) {
-  //       res.status(400).json({ message: "Video size is bigger than 125MB!" });
-  //       return;
-  //     }
-  //     let lastDotIdx = file.name.lastIndexOf(".");
-  //     const extension = file.name.substr(lastDotIdx);
-  //     const videoId = uuidv4();
-  //     const videoPath = VIDEOS_SRC_DIR + videoId + extension;
-  //     const videoFullPathWithoutEx = `${BASE_URL}/media/${appName}/${videoId}`;
-  //     await file.mv(videoPath, async (err) => {
-  //       if (err) {
-  //         res.status(500).json({ message: err });
-  //         return;
-  //       }
-  //     });
-  //     const path = require("path");
-  //     const rootPath = path.dirname(require.main.filename);
-  //     const uploadsPath = path.join(rootPath, "uploads");
-  //     console.log(uploadsPath);
-  //     let outputPath360 = path.join(uploadsPath, "360");
-  //     let outputPath480 = path.join(uploadsPath, "480");
-  //     let outputPath720 = path.join(uploadsPath, "720");
-  //     const command = ffmpeg()
-  //       .input(videoPath)
-  //       .videoCodec("libx264")
-  //       .output(outputPath720 + file.name)
-  //       .size("1080x?")
-  //       .output(outputPath480 + file.name)
-  //       .size("768x?")
-  //       .output(outputPath360 + file.name)
-  //       .size("320x?")
-  //       .on("progress", function (progress) {
-  //         console.log("Processing: " + progress.percent + "% done");
-  //       })
-  //       .on("end", function () {
-  //         console.log("Videos converted");
-  //         fs.unlink(videoPath, (err) => {
-  //           if (err) res.status(500).json({ message: err });
-  //           else {
-  //             res.status(201).json({
-  //               message: "File Uploaded Successfully!!",
-  //               video_id: videoId,
-  //               low_quality_url: `${videoFullPathWithoutEx}_low${extension}`,
-  //               mid_quality_url: `${videoFullPathWithoutEx}_mid${extension}`,
-  //               high_quality_url: `${videoFullPathWithoutEx}_high${extension}`,
-  //             });
-  //             return;
-  //           }
-  //         });
-  //       })
-  //       .on("error", function (err) {
-  //         console.error("this error:");
-  //         console.error(err);
-  //       })
-  //       .run();
-  //   } catch (err) {
-  //     console.error(err);
-  //     res.status(500).json({ message: err });
-  //   }
+  try {
+    const appName = req.headers["app-name"];
+    if (!appName) {
+      throw createError.BadRequest("app-name in headers not found");
+    }
+    const videosOutputPath = join(UPLOADED_VIDEOS_FILES_PATH, appName);
+    await fs.ensureDir(videosOutputPath);
+
+    const file = req.file;
+    const ext = extname(file.originalname);
+    console.log("video_file", req.file);
+    if (!file) {
+      throw createError.BadRequest("file not found");
+    }
+
+    if (!isVideoFile(file.originalname)) {
+      throw createError.BadRequest("wrong video format");
+    }
+
+    let inputPath = join(videosOutputPath, file.filename + ext);
+    //  copy file from temp to videos folder
+    await fs.copy(join(file.destination, file.filename), inputPath);
+
+    // remove file from temp folder
+    fs.remove(join(file.destination, file.filename))
+      .then(() => {
+        console.log("file removed");
+      })
+      .catch((e) => {
+        console.log("error while delete file", e);
+      });
+
+    // check if transcoded folder exists
+    const transcodedVideoPath = join(TRANSCODED_VIDEOS_FILES_PATH, appName);
+    await fs.ensureDir(transcodedVideoPath);
+
+    // make folder for transcoded videos for this video
+    const video_transcoder_path = join(transcodedVideoPath, file.filename);
+    await fs.ensureDir(video_transcoder_path);
+    const video_id = file.filename.split("_")[1];
+    let outputPath360 = join(video_transcoder_path, "360.mp4");
+    let outputPath480 = join(video_transcoder_path, "480.mp4");
+    let outputPath720 = join(video_transcoder_path, "720.mp4");
+
+    console.table({
+      inputPath,
+      outputPath360,
+      outputPath480,
+      outputPath720,
+    });
+    console.time("transcode");
+    const command = ffmpeg()
+      .input(inputPath)
+      .videoCodec("libx264")
+      .output(outputPath720)
+      .size("1080x?")
+      .output(outputPath480)
+      .size("768x?")
+      .output(outputPath360)
+      .size("320x?")
+      .on("progress", function (progress) {
+        console.log("Processing: " + progress.percent + "% done");
+      })
+      .on("end", function () {
+        console.timeEnd("transcode");
+        console.log("Videos converted");
+        fs.unlink(inputPath, (err) => {
+          if (err) res.status(500).json({ message: err });
+          else {
+            res.status(201).json({
+              message: "File Uploaded Successfully!!",
+              video_id,
+              low_quality_url: outputPath360,
+              mid_quality_url: outputPath480,
+              high_quality_url: outputPath720,
+            });
+            return;
+          }
+        });
+      })
+      .on("error", function (err) {
+        console.error("this error:");
+        console.error(err);
+      })
+      .run();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: err });
+  }
 };
 
 module.exports = {

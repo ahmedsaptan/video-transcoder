@@ -4,18 +4,47 @@ const createError = require("http-errors");
 const { join, extname } = require("path");
 const fs = require("fs-extra");
 const { EXTENSIONS } = require("../constants/video.constant");
-
+const Video = require("../models/video.model");
+const Application = require("../models/app.model");
+const ObjectId = require("mongoose").Types.ObjectId;
+const { body } = require("express-validator");
+const { checkValidations } = require("../helpers/checkMethods");
 function isVideoFile(fileName) {
   for (let i = 0; i < EXTENSIONS.length; i++)
     if (fileName.includes(EXTENSIONS[i])) return true;
   return false;
 }
+
+const validateOnCreate = () => {
+  return [
+    body("applicationId")
+      .exists()
+      .withMessage("applicationId is required")
+      .notEmpty()
+      .withMessage("applicationId is empty")
+      .isMongoId()
+      .withMessage("applicationId is not valid")
+      .custom(async (value, { req }) => {
+        try {
+          console.log("value", value);
+          const existApp = await Application.findById(value);
+          console.log("existApp", existApp);
+          if (!existApp) {
+            throw createError.NotFound("application not found");
+          }
+          req.existApp = existApp;
+          return true;
+        } catch (error) {
+          throw error;
+        }
+      }),
+  ];
+};
 const transcodeVideo = async (req, res, next) => {
   try {
-    const appName = req.headers["app-name"];
-    if (!appName) {
-      throw createError.BadRequest("app-name in headers not found");
-    }
+    console.log(req.body);
+    checkValidations(req);
+    const appName = req.existApp.title;
     const videosOutputPath = join(UPLOADED_VIDEOS_FILES_PATH, appName);
     await fs.ensureDir(videosOutputPath);
 
@@ -30,7 +59,17 @@ const transcodeVideo = async (req, res, next) => {
       throw createError.BadRequest("wrong video format");
     }
 
-    let inputPath = join(videosOutputPath, file.filename + ext);
+    const video = new Video({
+      title: file.originalname,
+      applicationId: req.existApp._id,
+    });
+
+    await video.save();
+    req.existApp.videosCount = req.existApp.videosCount + 1;
+    await req.existApp.save();
+    res.status(201).send(video);
+    const VIDEO_ID = video._id.toString();
+    let inputPath = join(videosOutputPath, VIDEO_ID + ext);
     //  copy file from temp to videos folder
     await fs.copy(join(file.destination, file.filename), inputPath);
 
@@ -48,13 +87,33 @@ const transcodeVideo = async (req, res, next) => {
     await fs.ensureDir(transcodedVideoPath);
 
     // make folder for transcoded videos for this video
-    const video_transcoder_path = join(transcodedVideoPath, file.filename);
+    const video_transcoder_path = join(transcodedVideoPath, VIDEO_ID);
     await fs.ensureDir(video_transcoder_path);
-    const video_id = file.filename.split("_")[1];
     let outputPath360 = join(video_transcoder_path, "360.mp4");
     let outputPath480 = join(video_transcoder_path, "480.mp4");
     let outputPath720 = join(video_transcoder_path, "720.mp4");
 
+    let appUrl;
+    if (DEV) {
+      appUrl = "http://localhost:3000";
+    } else {
+      appUrl = APP;
+    }
+
+    const urls = [
+      {
+        quailty: 360,
+        url: `${appUrl}/uploads/transcodedVideos/${appName}/${VIDEO_ID}/360.mp4`,
+      },
+      {
+        quailty: 480,
+        url: `${appUrl}/uploads/transcodedVideos/${appName}/${VIDEO_ID}/480.mp4`,
+      },
+      {
+        quailty: 720,
+        url: `${appUrl}/uploads/transcodedVideos/${appName}/${VIDEO_ID}/720.mp4`,
+      },
+    ];
     console.table({
       inputPath,
       outputPath360,
@@ -74,28 +133,19 @@ const transcodeVideo = async (req, res, next) => {
       .on("progress", function (progress) {
         console.log("Processing: " + progress.percent + "% done");
       })
-      .on("end", function () {
+      .on("end", async function () {
         console.timeEnd("transcode");
         console.log("Videos converted");
-        fs.unlink(inputPath, (err) => {
-          if (err) res.status(500).json({ message: err });
-          else {
-            let appUrl;
-            if (DEV) {
-              appUrl = "http://localhost:5000/";
-            } else {
-              appUrl = " https://video-transcoder-server.herokuapp.com/";
-            }
-            const video_url = `${appUrl}uploads/transcodedVideos/${appName}/video_${video_id}/`;
-
-            res.status(201).json({
-              message: "File Uploaded Successfully!!",
-              video_id,
-              low_quality_url: video_url + "360.mp4",
-              mid_quality_url: video_url + "480.mp4",
-              high_quality_url: video_url + "720.mp4",
-            });
-            return;
+        video.transcoded = true;
+        video.urls = urls;
+        await video.save();
+        fs.unlink(inputPath, async (err) => {
+          if (err) {
+            console.log(err);
+          } else {
+            console.log("file deleted");
+            video.originFileDelete = true;
+            await video.save();
           }
         });
       })
@@ -117,51 +167,51 @@ const getVideo = async (req, res, next) => {
     if (!videoId) {
       throw createError.BadRequest("videoId not found");
     }
-    const appName = req.query["app-name"];
-    if (!appName) {
-      throw createError.BadRequest("appName not found");
+
+    if (!ObjectId.isValid(videoId)) {
+      throw createError.BadRequest("not valid id");
     }
 
-    console.table({ videoId, appName });
+    const video = await Video.findById(videoId);
 
-    const appNameFolder = join(TRANSCODED_VIDEOS_FILES_PATH, appName);
+    if (!video) {
+      throw createError.NotFound("video not found");
+    }
+    if (!video.transcoded) {
+      throw createError.BadRequest("video not transcodef yet");
+    }
 
-    fs.access(appNameFolder, fs.F_OK, (err) => {
-      if (err) {
-        console.error(err);
-        return next(createError.BadRequest("appName not found"));
-      }
+    res.send({
+      video: {
+        _id: video._id,
+        urls: video.urls,
+      },
+    });
+  } catch (err) {
+    console.log(err);
+    next(err);
+  }
+};
 
-      const video_transcoder_path = join(appNameFolder, `video_${videoId}`);
+const checkTranscoded = async (req, res, next) => {
+  try {
+    const videoId = req.params.videoId;
 
-      fs.access(video_transcoder_path, fs.F_OK, (err) => {
-        if (err) {
-          console.error(err);
-          return next(createError.BadRequest("video not found"));
-        }
+    if (!videoId) {
+      throw createError.BadRequest("videoId not found");
+    }
 
-        fs.readdir(video_transcoder_path, (err, files) => {
-          if (err) {
-            console.log(err);
-            return next(createError.BadRequest("video not found"));
-          }
-          let appUrl;
-          if (DEV) {
-            appUrl = "http://localhost:5000/";
-          } else {
-            appUrl = " https://video-transcoder-server.herokuapp.com/";
-          }
-          const video_url = `${appUrl}uploads/transcodedVideos/${appName}/video_${videoId}/`;
-          const videos = files.map((f) => {
-            return video_url + f;
-          });
-          res.send({
-            low_quality_url: videos[0],
-            mid_quality_url: videos[1],
-            high_quality_url: videos[2],
-          });
-        });
-      });
+    if (!ObjectId.isValid(videoId)) {
+      throw createError.BadRequest("not valid id");
+    }
+
+    const video = await Video.findById(videoId);
+
+    res.send({
+      video: {
+        _id: video._id,
+        transcoded: video.transcoded,
+      },
     });
   } catch (err) {
     console.log(err);
@@ -172,4 +222,6 @@ const getVideo = async (req, res, next) => {
 module.exports = {
   transcodeVideo,
   getVideo,
+  checkTranscoded,
+  validateOnCreate,
 };

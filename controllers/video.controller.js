@@ -80,12 +80,20 @@ const transcodeVideo = async (req, res, next) => {
         fs.unlink(inputPath, (err) => {
           if (err) res.status(500).json({ message: err });
           else {
+            let appUrl;
+            if (DEV) {
+              appUrl = "http://localhost:5000/";
+            } else {
+              appUrl = " https://video-transcoder-server.herokuapp.com/";
+            }
+            const video_url = `${appUrl}uploads/transcodedVideos/${appName}/video_${video_id}/`;
+
             res.status(201).json({
               message: "File Uploaded Successfully!!",
               video_id,
-              low_quality_url: outputPath360,
-              mid_quality_url: outputPath480,
-              high_quality_url: outputPath720,
+              low_quality_url: video_url + "360.mp4",
+              mid_quality_url: video_url + "480.mp4",
+              high_quality_url: video_url + "720.mp4",
             });
             return;
           }

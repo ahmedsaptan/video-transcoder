@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 //Set up default mongoose connection
-const mongoDB = "mongodb://127.0.0.1/video_transcoder";
+const mongoDB = "mongodb://0.0.0.0/video_transcoder";
 mongoose
   .connect(mongoDB, { useNewUrlParser: true, useUnifiedTopology: true })
   .then((res) => {

@@ -102,6 +102,66 @@ const transcodeVideo = async (req, res, next) => {
   }
 };
 
+const getVideo = async (req, res, next) => {
+  try {
+    const videoId = req.params.videoId;
+
+    if (!videoId) {
+      throw createError.BadRequest("videoId not found");
+    }
+    const appName = req.query["app-name"];
+    if (!appName) {
+      throw createError.BadRequest("appName not found");
+    }
+
+    console.table({ videoId, appName });
+
+    const appNameFolder = join(TRANSCODED_VIDEOS_FILES_PATH, appName);
+
+    fs.access(appNameFolder, fs.F_OK, (err) => {
+      if (err) {
+        console.error(err);
+        return next(createError.BadRequest("appName not found"));
+      }
+
+      const video_transcoder_path = join(appNameFolder, `video_${videoId}`);
+
+      fs.access(video_transcoder_path, fs.F_OK, (err) => {
+        if (err) {
+          console.error(err);
+          return next(createError.BadRequest("video not found"));
+        }
+
+        fs.readdir(video_transcoder_path, (err, files) => {
+          if (err) {
+            console.log(err);
+            return next(createError.BadRequest("video not found"));
+          }
+          let appUrl;
+          if (DEV) {
+            appUrl = "http://localhost:5000/";
+          } else {
+            appUrl = " https://video-transcoder-server.herokuapp.com/";
+          }
+          const video_url = `${appUrl}uploads/transcodedVideos/${appName}/video_${videoId}/`;
+          const videos = files.map((f) => {
+            return video_url + f;
+          });
+          res.send({
+            low_quality_url: videos[0],
+            mid_quality_url: videos[1],
+            high_quality_url: videos[2],
+          });
+        });
+      });
+    });
+  } catch (err) {
+    console.log(err);
+    next(err);
+  }
+};
+
 module.exports = {
   transcodeVideo,
+  getVideo,
 };

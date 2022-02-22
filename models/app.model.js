@@ -8,6 +8,9 @@ const ApplicationSchema = new Schema(
       type: Number,
       default: 0,
     },
+    key: {
+      type: String,
+    },
   },
   {
     timestamps: true,

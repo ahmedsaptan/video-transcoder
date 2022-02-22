@@ -44,7 +44,7 @@ const transcodeVideo = async (req, res, next) => {
   try {
     console.log(req.body);
     checkValidations(req);
-    const appName = req.existApp.title;
+    const appName = req.existApp._id.toString();
     const videosOutputPath = join(UPLOADED_VIDEOS_FILES_PATH, appName);
     await fs.ensureDir(videosOutputPath);
 

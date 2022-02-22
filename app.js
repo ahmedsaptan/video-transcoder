@@ -30,7 +30,7 @@ require("./helpers/checkFolders").checkUploadesFolders();
 
 // database connections
 require("./models");
-
+const Application = require("./models/app.model");
 const app = express();
 
 app.use(logger("dev"));
@@ -41,12 +41,49 @@ app.use(express.urlencoded({ extended: false }));
 app.use(express.static("public"));
 app.use(
   "/uploads/transcodedVideos",
+  async (req, res, next) => {
+    console.log("transcodedVideos");
+    const user_agent = req.headers["user-agent"];
+    if (!user_agent) {
+      return next(createError(403, "user-agent is required"));
+    }
+    console.log("user_agent", user_agent);
+    console.log("req.path", req.path);
+    const path = req.path.trim().split("/");
+    let appId = null;
+    if (path[0] == "") {
+      console.log("path[0] empty");
+    } else {
+      appId = path[0];
+    }
+    appId = path[1];
+
+    try {
+      if (appId) {
+        const application = await Application.findById(appId);
+        if (!application) {
+          throw createError.NotFound("application not found");
+        }
+        req.application = application;
+        if (application.key != user_agent) {
+          return next(createError(403, "unauthorized"));
+        }
+        next();
+      } else {
+        return next(createError(403, "applicationId is required"));
+      }
+    } catch (e) {
+      console.log("error", e);
+      return next(createError(500, "internal server error"));
+    }
+  },
   express.static(TRANSCODED_VIDEOS_FILES_PATH)
 );
 app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "/index.html"));
+  res.send("Hello World!");
 });
-app.use("/", indexRouter);
+
+app.use("/api", indexRouter);
 
 // catch 404 and forward to error handler
 app.use(function (req, res, next) {

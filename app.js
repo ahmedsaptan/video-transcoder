@@ -23,7 +23,7 @@ global.DEV = process.env.NODE_ENV !== "production";
 global.TEMP_UPLOAD_FILES = TEMP_UPLOAD_FILES;
 global.UPLOADED_VIDEOS_FILES_PATH = UPLOADED_VIDEOS_FILES_PATH;
 global.TRANSCODED_VIDEOS_FILES_PATH = TRANSCODED_VIDEOS_FILES_PATH;
-global.APP = "https://ma-sharaf.com/api";
+global.APP = "https://ma-sharaf.com";
 console.log("ensure");
 // check to see videos uploads, transcoded videos exist and create them if not
 require("./helpers/checkFolders").checkUploadesFolders();

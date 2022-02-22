@@ -207,6 +207,9 @@ const checkTranscoded = async (req, res, next) => {
 
     const video = await Video.findById(videoId);
 
+    if (!video) {
+      throw createError.NotFound("video not found");
+    }
     res.send({
       video: {
         _id: video._id,

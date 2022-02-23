@@ -33,7 +33,7 @@ require("./models");
 const Application = require("./models/app.model");
 const app = express();
 
-app.use(logger("dev"));
+app.use(logger("tiny"));
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -45,7 +45,11 @@ app.use(
     console.log("transcodedVideos");
     const user_agent = req.headers["user-agent"];
     if (!user_agent) {
-      return next(createError(403, "user-agent is required"));
+      return res.status(404).send(`
+        <div style="text-align: center;">
+          <h1> Url is Expired </h1>
+        </div>
+      `);
     }
     console.log("user_agent", user_agent);
     console.log("req.path", req.path);
@@ -62,15 +66,27 @@ app.use(
       if (appId) {
         const application = await Application.findById(appId);
         if (!application) {
-          throw createError.NotFound("application not found");
+          return res.status(404).send(`
+          <div style="text-align: center;">
+          <h1> Url is Expired </h1>
+        </div>
+        `);
         }
         req.application = application;
         if (application.key != user_agent) {
-          return next(createError(403, "unauthorized"));
+          return res.status(404).send(`
+          <div style="text-align: center;">
+          <h1> Url is Expired </h1>
+        </div>
+        `);
         }
         next();
       } else {
-        return next(createError(403, "applicationId is required"));
+        return res.status(404).send(`
+        <div style="text-align: center;">
+          <h1> Url is Expired </h1>
+        </div>
+      `);
       }
     } catch (e) {
       console.log("error", e);
